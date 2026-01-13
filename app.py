@@ -4,141 +4,138 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="UAE Data Analysis Engine", layout="wide", page_icon="🇦🇪")
+st.set_page_config(page_title="UAE Patent Analysis Engine", layout="wide", page_icon="🇦🇪")
 
-# --- DATA LOADING ---
+# --- 1. DATA LOADING & CLEANING ---
 @st.cache_data
 def load_and_refine_data():
+    # Load the specific Type 5 CSV
     df = pd.read_csv("Data Structure - Patents in UAE (Archistrategos) - Type 5.csv")
     
-    # Date Cleaning
+    # Precise Date conversion
     df['Application Date'] = pd.to_datetime(df['Application Date'], errors='coerce')
     df['Year'] = df['Application Date'].dt.year.fillna(0).astype(int)
     df['Month'] = df['Application Date'].dt.month_name()
     df['YearMonth'] = df['Application Date'].dt.to_period('M').astype(str)
     
-    # IPC Refinement: Extract 4-character subclass (e.g., G06F)
+    # IPC Cleaning: Extracting the first primary subclass (e.g., A61K)
+    # We remove "There are no classifications" for cleaner metrics
     df['Primary_IPC'] = df['Classification'].str.split(',').str[0].str.strip().str[:4]
+    df = df[df['Primary_IPC'] != "Ther"] 
     
-    # Filter out entries with no real data
-    df = df[df['Primary_IPC'] != "Ther"] # Removes "There are no classifications"
-    df = df.dropna(subset=['Application Date', 'Country Name (Priority)'])
+    # Calculate Priority Lag if Priority Date exists
+    df['Earliest Priority Date'] = pd.to_datetime(df['Earliest Priority Date'], errors='coerce')
+    df['Priority_Lag_Days'] = (df['Application Date'] - df['Earliest Priority Date']).dt.days
     
     return df
 
 df = load_and_refine_data()
 
-# --- SIDEBAR & FILTERS ---
-st.sidebar.title("🛠️ Analysis Controls")
-st.sidebar.markdown("Use these filters to drill down into specific data segments.")
+# --- 2. SIDEBAR: NAVIGATION & FILTERS ---
+st.sidebar.title("🛠️ Analysis Tools")
+menu = st.sidebar.radio("Go to:", ["Time-Series Growth", "Classification & Country Strength", "Expert Search"])
 
-all_countries = sorted(df['Country Name (Priority)'].unique())
-selected_countries = st.sidebar.multiselect("Filter by Country", all_countries, help="Leave empty to see all")
-selected_ipc = st.sidebar.multiselect("Filter by Classification (IPC)", sorted(df['Primary_IPC'].unique()))
+# Filters
+all_countries = sorted(df['Country Name (Priority)'].dropna().unique())
+all_years = sorted(df['Year'].unique(), reverse=True)
 
-# Filtering Logic
+st.sidebar.markdown("---")
+selected_country = st.sidebar.multiselect("Filter by Country", all_countries)
+selected_year = st.sidebar.selectbox("Focus Year (for monthly drill-down)", all_years)
+
+# Apply Filters
 filtered_df = df.copy()
-if selected_countries:
-    filtered_df = filtered_df[filtered_df['Country Name (Priority)'].isin(selected_countries)]
-if selected_ipc:
-    filtered_df = filtered_df[filtered_df['Primary_IPC'].isin(selected_ipc)]
+if selected_country:
+    filtered_df = filtered_df[filtered_df['Country Name (Priority)'].isin(selected_country)]
 
-# --- MAIN DASHBOARD ---
-st.title("🇦🇪 UAE Data Analysis Engine")
-st.markdown("---")
+# --- 3. MAIN DASHBOARD ---
+st.title("🇦🇪 UAE Patent Analysis Engine (Type 5)")
+st.markdown(f"**Current Dataset Scope:** {len(filtered_df)} Applications Analyzed")
 
-# 1. EXECUTIVE METRICS (KPIs)
-kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-with kpi1:
-    st.metric("Total Applications", len(filtered_df))
-with kpi2:
-    st.metric("Active Countries", filtered_df['Country Name (Priority)'].nunique())
-with kpi3:
-    st.metric("Primary IPC", filtered_df['Primary_IPC'].mode()[0] if not filtered_df.empty else "N/A")
-with kpi4:
-    growth_pct = "Analysis Active"
-    st.metric("Status", "Type 5 Data")
-
-# 2. ANALYSIS TABS
-tab1, tab2, tab3 = st.tabs(["📈 Growth Analysis", "🌍 Expertise & Specialization", "🔍 Expert Search"])
-
-with tab1:
-    st.header("Temporal Growth Trends")
-    col1, col2 = st.columns([2, 1])
+if menu == "Time-Series Growth":
+    st.header("📈 Growth Trends & Temporal Analysis")
+    
+    col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("Volume Growth Over the Years")
-        yearly = filtered_df.groupby('Year').size().reset_index(name='Total')
-        yearly = yearly[yearly['Year'] > 2000] # Filter for modern era
-        fig_year = px.area(yearly, x='Year', y='Total', title="Annual Application Growth",
-                           color_discrete_sequence=['#1f77b4'])
+        st.subheader("Applications per Year")
+        yearly_counts = filtered_df.groupby('Year').size().reset_index(name='Total Applications')
+        yearly_counts = yearly_counts[yearly_counts['Year'] > 1999] # Filter for modern data
+        
+        fig_year = px.bar(yearly_counts, x='Year', y='Total Applications', 
+                          text_auto=True, color='Total Applications',
+                          color_continuous_scale='Blues',
+                          labels={'Year': 'Calendar Year', 'Total Applications': 'Number of Filings'})
+        fig_year.update_layout(xaxis_tickangle=-45)
         st.plotly_chart(fig_year, use_container_width=True)
         
     with col2:
-        st.subheader("Seasonal Trends (Monthly)")
-        focus_year = st.selectbox("Select Year for Monthly View", sorted(df['Year'].unique(), reverse=True))
-        year_df = filtered_df[filtered_df['Year'] == focus_year]
-        m_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-        m_counts = year_df.groupby('Month').size().reindex(m_order, fill_value=0).reset_index(name='Total')
-        fig_month = px.bar(m_counts, x='Month', y='Total', color='Total', color_continuous_scale='Reds')
+        st.subheader(f"Monthly Distribution in {selected_year}")
+        year_focus_df = filtered_df[filtered_df['Year'] == selected_year]
+        month_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+        monthly_counts = year_focus_df.groupby('Month').size().reindex(month_order, fill_value=0).reset_index(name='Total Applications')
+        
+        fig_month = px.line(monthly_counts, x='Month', y='Total Applications', 
+                           markers=True, color_discrete_sequence=['#E74C3C'],
+                           labels={'Month': 'Month of Filing', 'Total Applications': 'Applications Count'})
         st.plotly_chart(fig_month, use_container_width=True)
 
-    st.subheader("12-Month Moving Average (Market Velocity)")
-    st.markdown("The red line shows the smoothed trend, ignoring monthly spikes to show true market growth.")
-    ma_df = filtered_df.groupby('YearMonth').size().reset_index(name='Count')
-    ma_df['YearMonth_DT'] = pd.to_datetime(ma_df['YearMonth'])
-    ma_df = ma_df.sort_values('YearMonth_DT')
-    ma_df['MA12'] = ma_df['Count'].rolling(window=12).mean()
+    st.subheader("12-Month Moving Average (Trend Over Time)")
+    st.info("The red line represents the smoothed average, helping to identify long-term growth by removing monthly spikes.")
+    growth_data = filtered_df.groupby('YearMonth').size().reset_index(name='Count')
+    growth_data['YearMonth_DT'] = pd.to_datetime(growth_data['YearMonth'])
+    growth_data = growth_data.sort_values('YearMonth_DT')
+    growth_data['MA12'] = growth_data['Count'].rolling(window=12).mean()
     
     fig_ma = go.Figure()
-    fig_ma.add_trace(go.Scatter(x=ma_df['YearMonth'], y=ma_df['Count'], name="Monthly Apps", opacity=0.3))
-    fig_ma.add_trace(go.Scatter(x=ma_df['YearMonth'], y=ma_df['MA12'], name="12-Month Trend", line=dict(color='red', width=4)))
+    fig_ma.add_trace(go.Scatter(x=growth_data['YearMonth'], y=growth_data['Count'], 
+                                name="Monthly Actuals", opacity=0.3, line=dict(color='gray')))
+    fig_ma.add_trace(go.Scatter(x=growth_data['YearMonth'], y=growth_data['MA12'], 
+                                name="12-Month Moving Average", line=dict(color='red', width=3)))
+    fig_ma.update_layout(xaxis_title="Timeline (Year-Month)", yaxis_title="Number of Applications")
     st.plotly_chart(fig_ma, use_container_width=True)
 
-with tab2:
-    st.header("Country Expertise & Classification Strength")
+elif menu == "Classification & Country Strength":
+    st.header("🌍 IPC Strength & Country Expertise")
     
-    st.subheader("Interactive Heatmap: IPC Concentration per Country")
-    heat_df = filtered_df.groupby(['Country Name (Priority)', 'Primary_IPC']).size().reset_index(name='Frequency')
-    # Filter for significant data
-    top_ipcs = heat_df.groupby('Primary_IPC')['Frequency'].sum().nlargest(15).index
-    heat_plot = heat_df[heat_df['Primary_IPC'].isin(top_ipcs)]
+    # 1. Expertise Heatmap
+    st.subheader("Heatmap: Technology Concentration per Country")
+    heat_df = filtered_df.groupby(['Country Name (Priority)', 'Primary_IPC']).size().reset_index(name='Apps')
+    # Filter for top 20 most frequent IPCs for visual clarity
+    top_ipcs = heat_df.groupby('Primary_IPC')['Apps'].sum().nlargest(20).index
+    heat_df_top = heat_df[heat_df['Primary_IPC'].isin(top_ipcs)]
     
     fig_heat = px.density_heatmap(
-        heat_plot, x="Primary_IPC", y="Country Name (Priority)", z="Frequency",
+        heat_df_top, x="Primary_IPC", y="Country Name (Priority)", z="Apps",
         color_continuous_scale="Viridis", text_auto=True,
-        labels={'Frequency': 'Expertise Count'},
-        title="Who is the Expert? (Number of Classifications per Country)"
+        labels={'Apps': 'Total Filings', 'Primary_IPC': 'IPC Classification (Subclass)', 'Country Name (Priority)': 'Country of Origin'},
+        title="Identifying Global Experts: Who leads in which classification?"
     )
     st.plotly_chart(fig_heat, use_container_width=True)
-    
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.subheader("Top 10 Global Experts (By Count)")
-        top_countries = filtered_df['Country Name (Priority)'].value_counts().head(10)
-        st.bar_chart(top_countries)
-        
-    with col_b:
-        st.subheader("Classification Concentration")
-        top_classes = filtered_df['Primary_IPC'].value_counts().head(10)
-        fig_pie = px.pie(values=top_classes.values, names=top_classes.index, hole=0.4)
-        st.plotly_chart(fig_pie, use_container_width=True)
 
-with tab3:
-    st.header("Expert Explorer & Search")
-    query = st.text_input("Search by Patent Title, Applicant, or IPC Code...")
+    # 2. Detailed Concentration Table
+    st.subheader("Country IPC Concentration Details")
+    concentration_df = heat_df_top.sort_values(by=['Country Name (Priority)', 'Apps'], ascending=[True, False])
+    st.dataframe(concentration_df.rename(columns={'Apps': 'Count of Same IPC'}), use_container_width=True)
+
+elif menu == "Expert Search":
+    st.header("🔍 Expert Identification & Patent Explorer")
+    search = st.text_input("Search by Technical keyword, Applicant name, or IPC Code (e.g., G06F)")
     
-    if query:
-        search_results = filtered_df[
-            filtered_df['Title'].str.contains(query, case=False, na=False) |
-            filtered_df['Primary_IPC'].str.contains(query, case=False, na=False)
+    if search:
+        results = filtered_df[
+            filtered_df['Title'].str.contains(search, case=False, na=False) |
+            filtered_df['Primary_IPC'].str.contains(search, case=False, na=False) |
+            filtered_df['Application Number'].str.contains(search, case=False, na=False)
         ]
-    else:
-        search_results = filtered_df.head(100)
+        st.success(f"🔍 Found {len(results)} matching records")
         
-    st.write(f"Showing {len(search_results)} matching records")
-    st.dataframe(search_results[['Application Number', 'Title', 'Primary_IPC', 'Country Name (Priority)', 'Application Date']], use_container_width=True)
-
-    # Export Feature
-    csv = search_results.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 Download This Analysis as CSV", data=csv, file_name="UAE_Patent_Analysis.csv", mime="text/csv")
+        # Display results with proper formatting
+        st.dataframe(results[['Application Number', 'Title', 'Primary_IPC', 'Country Name (Priority)', 'Application Date', 'Priority_Lag_Days']], 
+                     use_container_width=True)
+        
+        # Download results
+        csv = results.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Download Search Results as CSV", data=csv, file_name="UAE_Patent_Expert_Search.csv", mime="text/csv")
+    else:
+        st.info("Enter a keyword above to find specific technology experts and application details.")
