@@ -84,20 +84,71 @@ if df is not None:
     if selected_country:
         filtered_df = filtered_df[filtered_df['Country Name (Priority)'].isin(selected_country)]
 
-    # --- TIME-SERIES GROWTH ---
+    # --- TIME-SERIES GROWTH (WITH NEW MOVING AVERAGE) ---
     if menu == "Time-Series Growth":
         st.header("📈 Growth Trends & Temporal Analysis")
         col1, col2 = st.columns([2, 1])
         with col1:
+            st.subheader("Total Applications per Year with 3-Year Moving Average")
             yearly_counts = filtered_df[filtered_df['Year'] >= 1990].groupby('Year').size().reset_index(name='Number of Applications')
-            fig_year = px.bar(yearly_counts, x='Year', y='Number of Applications', text='Number of Applications', color_discrete_sequence=['#3498db'])
-            fig_year.update_traces(textposition='outside', textfont=dict(family="Arial Black"))
+            
+            # CALCULATE MOVING AVERAGE
+            yearly_counts['Moving Average (3Y)'] = yearly_counts['Number of Applications'].rolling(window=3).mean()
+
+            # Create Hybrid Chart
+            fig_year = go.Figure()
+            # Bar Chart for Raw Data
+            fig_year.add_trace(go.Bar(
+                x=yearly_counts['Year'], 
+                y=yearly_counts['Number of Applications'],
+                name='Raw Count',
+                text=yearly_counts['Number of Applications'],
+                textposition='outside',
+                marker_color='#3498db'
+            ))
+            # Line Chart for Trend
+            fig_year.add_trace(go.Scatter(
+                x=yearly_counts['Year'], 
+                y=yearly_counts['Moving Average (3Y)'],
+                name='3-Year Trend (MA)',
+                line=dict(color='#FF6600', width=4),
+                mode='lines'
+            ))
+            
+            fig_year.update_layout(
+                xaxis=dict(type='category', tickangle=45),
+                yaxis=dict(title="Number of Applications", dtick=10),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                font=dict(family="Arial Black")
+            )
             st.plotly_chart(fig_year, use_container_width=True)
+
         with col2:
             st.subheader("Data Table Verification")
             st.dataframe(yearly_counts.sort_values('Year', ascending=False), use_container_width=True, hide_index=True)
 
-    # --- GLOBAL PRIORITY & COMPARISONS ---
+        st.markdown("---")
+        # Rest of your original Monthly Distribution logic follows...
+        selected_year = st.sidebar.selectbox("Focus Year (for monthly view)", sorted(df[df['Year'] > 0]['Year'].unique(), reverse=True))
+        if selected_year:
+            st.subheader(f"Monthly Distribution for {selected_year}")
+            year_df = filtered_df[filtered_df['Year'] == selected_year]
+            month_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+            monthly_counts = year_df.groupby('Month').size().reindex(month_order, fill_value=0).reset_index(name='Number of Applications')
+            fig_month = px.line(monthly_counts, x='Month', y='Number of Applications', markers=True, text='Number of Applications')
+            fig_month.update_traces(textposition='top center', textfont=dict(family="Arial Black"))
+            st.plotly_chart(fig_month, use_container_width=True)
+
+    # --- ALL OTHER MODULES (UNCHANGED) ---
+    elif menu == "Classification & Country Strength":
+        st.header("🌍 IPC Strength & Country Activity")
+        all_ipcs = [x for x in sorted(filtered_df['Primary_IPC'].dropna().unique()) if x != "Ther"]
+        target_ipc = st.selectbox("IPC Sector:", all_ipcs)
+        leader_counts = filtered_df[filtered_df['Primary_IPC'] == target_ipc].groupby('Country Name (Priority)').size().reset_index(name='Number of Applications').sort_values('Number of Applications', ascending=False)
+        fig_leader = px.bar(leader_counts, x='Country Name (Priority)', y='Number of Applications', text='Number of Applications', color_discrete_sequence=['#e74c3c'])
+        fig_leader.update_traces(textposition='outside', textfont=dict(family="Arial Black"))
+        st.plotly_chart(fig_leader, use_container_width=True)
+
     elif menu == "Global Priority & Comparisons":
         st.header("🏁 Global Priority Analysis")
         valid_p = df[df['Priority_Year'] > 1900]['Priority_Year']
@@ -106,39 +157,20 @@ if df is not None:
         
         col_chart, col_table = st.columns([2, 1])
         with col_chart:
-            st.subheader("Monthly Priority Distribution")
             month_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
             actual = p_df.groupby(['Priority_Year', 'Priority_Month']).size().reset_index(name='Number of Applications')
             actual['Priority_Year'] = actual['Priority_Year'].astype(str)
             fig_m = px.bar(actual, x='Priority_Month', y='Number of Applications', color='Priority_Year', barmode='group', text='Number of Applications', category_orders={"Priority_Month": month_order})
-            fig_m.update_traces(textposition='outside', textfont=dict(family="Arial Black"))
             st.plotly_chart(fig_m, use_container_width=True)
             
         with col_table:
             st.subheader("📌 Yearly Summary")
             summary_p = p_df.groupby('Priority_Year').size().reset_index(name='Number of Applications')
             st.dataframe(summary_p.sort_values('Priority_Year', ascending=False), use_container_width=True, hide_index=True)
-            
-            # --- NEW MONTHLY SUMMARY TABLE ---
             st.subheader("📅 Monthly Breakdown")
             detail_p = p_df.groupby(['Priority_Year', 'Priority_Month']).size().reset_index(name='Number of Applications')
-            # Custom sorting to ensure latest years and chronological months
             detail_p['Month_Num'] = pd.to_datetime(detail_p['Priority_Month'], format='%B').dt.month
-            st.dataframe(
-                detail_p.sort_values(['Priority_Year', 'Month_Num'], ascending=[False, True])[['Priority_Year', 'Priority_Month', 'Number of Applications']], 
-                use_container_width=True, height=400, hide_index=True
-            )
-
-    # --- OTHER MODULES (Intact) ---
-    elif menu == "Classification & Country Strength":
-        st.header("🌍 IPC Strength & Country Activity")
-        all_ipcs = [x for x in sorted(filtered_df['Primary_IPC'].dropna().unique()) if x != "Ther"]
-        target_ipc = st.selectbox("IPC Sector:", all_ipcs)
-        ipc_leader_df = filtered_df[filtered_df['Primary_IPC'] == target_ipc]
-        leader_counts = ipc_leader_df.groupby('Country Name (Priority)').size().reset_index(name='Number of Applications').sort_values('Number of Applications', ascending=False)
-        fig_leader = px.bar(leader_counts, x='Country Name (Priority)', y='Number of Applications', text='Number of Applications', color_discrete_sequence=['#e74c3c'])
-        fig_leader.update_traces(textposition='outside', textfont=dict(family="Arial Black"))
-        st.plotly_chart(fig_leader, use_container_width=True)
+            st.dataframe(detail_p.sort_values(['Priority_Year', 'Month_Num'], ascending=[False, True])[['Priority_Year', 'Priority_Month', 'Number of Applications']], use_container_width=True, height=400, hide_index=True)
 
     elif menu == "Expert Search":
         st.header("🔍 Identify Experts")
