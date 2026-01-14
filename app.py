@@ -36,14 +36,13 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- DATA REFINEMENT ENGINE (UNCHANGED) ---
+# --- DATA REFINEMENT ENGINE ---
 def refine_data(df):
     df.columns = df.columns.str.strip()
     if 'Application Date' in df.columns:
         df['Application Date'] = pd.to_datetime(df['Application Date'], errors='coerce')
         df['Year'] = df['Application Date'].dt.year.fillna(0).astype(int)
         df['Month'] = df['Application Date'].dt.month_name()
-        # Creation of continuous timeline period (Year-Month)
         df['Period'] = df['Application Date'].dt.to_period('M').astype(str)
     if 'Earliest Priority Date' in df.columns:
         df['Earliest Priority Date'] = pd.to_datetime(df['Earliest Priority Date'], errors='coerce')
@@ -62,7 +61,7 @@ with st.sidebar:
         st.title("🏛️ ARCHISTRATEGOS")
     
     st.markdown("---")
-    data_source = st.radio("Select Data Source:", ["Default UAE Dataset", "Upload Custom CSV"])
+    data_source = st.sidebar.radio("Select Data Source:", ["Default UAE Dataset", "Upload Custom CSV"])
 
 # Data Loading Logic
 try:
@@ -77,6 +76,7 @@ except:
     st.error("Data Source Error.")
     st.stop()
 
+# --- MAIN APP LOGIC ---
 if df is not None:
     menu = st.sidebar.radio("Go to:", ["Time-Series Growth", "Classification & Country Strength", "Global Priority & Comparisons", "Expert Search"])
     all_countries = sorted(df['Country Name (Priority)'].dropna().unique())
@@ -85,11 +85,11 @@ if df is not None:
     if selected_country:
         filtered_df = filtered_df[filtered_df['Country Name (Priority)'].isin(selected_country)]
 
-    # --- TIME-SERIES GROWTH (WITH ENHANCED MONTHLY TREND) ---
+    # --- MODULE 1: TIME-SERIES GROWTH ---
     if menu == "Time-Series Growth":
         st.header("📈 Growth Trends & Temporal Analysis")
         
-        # 1. Yearly Bar Chart (Original)
+        # A. YEARLY VIEW (INTACT)
         col1, col2 = st.columns([2, 1])
         with col1:
             st.subheader("Total Applications per Year")
@@ -99,29 +99,33 @@ if df is not None:
             fig_year.update_xaxes(type='category', tickangle=45)
             st.plotly_chart(fig_year, use_container_width=True)
         with col2:
-            st.subheader("Data Registry")
+            st.subheader("Yearly Data Registry")
             st.dataframe(yearly_counts.sort_values('Year', ascending=False), use_container_width=True, hide_index=True)
 
         st.markdown("---")
 
-        # 2. CONTINUOUS MONTHLY TREND (New Chart)
-        st.subheader("📉 Full Historical Monthly Trend")
-        st.write("This line shows the continuous growth across every month of every year in the registry.")
-        
-        # Filter out 0 years and group by the Year-Month Period
+        # B. CONTINUOUS MONTHLY TREND (LINE VIEW WITH PEAK NUMBERS)
+        st.subheader("📉 Continuous Historical Trend (By Month)")
+        st.write("Raw filing trajectory with monthly data labels.")
         monthly_trend = filtered_df[filtered_df['Year'] > 0].groupby('Period').size().reset_index(name='Count')
         
         fig_full_trend = px.line(monthly_trend, x='Period', y='Count', 
-                                 title="Continuous Monthly Filing Activity",
-                                 labels={'Period': 'Timeline (Year-Month)', 'Count': 'Applications'})
-        fig_full_trend.update_traces(line=dict(color='#FF6600', width=2), mode='lines+markers', marker=dict(size=4))
+                                 labels={'Period': 'Year-Month Timeline', 'Count': 'Applications'},
+                                 text='Count') # Added data labels here
+        fig_full_trend.update_traces(
+            line=dict(color='#FF6600', width=3), 
+            mode='lines+markers+text', # Enabled text mode
+            marker=dict(size=6),
+            textposition='top center', # Position numbers above the points
+            textfont=dict(family="Arial Black", size=10)
+        )
         fig_full_trend.update_layout(hovermode="x unified", plot_bgcolor='white')
         st.plotly_chart(fig_full_trend, use_container_width=True)
 
         st.markdown("---")
         
-        # 3. Specific Year Monthly View (Original)
-        selected_year = st.sidebar.selectbox("Focus Year (Monthly Table)", sorted(df[df['Year'] > 0]['Year'].unique(), reverse=True))
+        # C. SPECIFIC YEAR FOCUS (INTACT)
+        selected_year = st.sidebar.selectbox("Focus Year (Monthly Detail)", sorted(df[df['Year'] > 0]['Year'].unique(), reverse=True))
         if selected_year:
             st.subheader(f"Detailed Monthly View for {selected_year}")
             year_df = filtered_df[filtered_df['Year'] == selected_year]
