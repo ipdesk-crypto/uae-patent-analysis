@@ -29,6 +29,13 @@ if not check_password():
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="UAE Patent Analysis Pro", layout="wide", page_icon="🏛️")
 
+st.markdown("""
+    <style>
+    [data-testid="stSidebar"] { background-color: #002147; color: white; }
+    h1, h2, h3 { color: #002147; }
+    </style>
+""", unsafe_allow_html=True)
+
 # --- DATA REFINEMENT ENGINE ---
 def refine_data(df):
     df.columns = df.columns.str.strip()
@@ -73,6 +80,7 @@ if df is not None:
     if selected_country:
         filtered_df = filtered_df[filtered_df['Country Name (Priority)'].isin(selected_country)]
 
+    # --- MODULE 1: TIME-SERIES GROWTH (ALL TRENDS INTACT) ---
     if menu == "Time-Series Growth":
         st.header("📈 Growth Trends & Temporal Analysis")
         
@@ -121,10 +129,10 @@ if df is not None:
 
         st.markdown("---")
 
-        # 6. MONTHLY DISTRIBUTION PER YEAR (LAST)
+        # 6. MONTHLY FOCUS
         selected_year = st.sidebar.selectbox("Focus Year Detail", sorted(df[df['Year'] > 0]['Year'].unique(), reverse=True))
         if selected_year:
-            st.subheader(f"Monthly Distribution for {selected_year} (Application Date)")
+            st.subheader(f"Monthly Distribution for {selected_year}")
             year_df = filtered_df[filtered_df['Year'] == selected_year]
             month_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
             m_counts = year_df.groupby('Month').size().reindex(month_order, fill_value=0).reset_index(name='Count')
@@ -132,7 +140,33 @@ if df is not None:
             fig_m.update_traces(textposition='top center', textfont=dict(family="Arial Black", color="white"))
             st.plotly_chart(fig_m, use_container_width=True)
 
-    # --- OTHER MODULES (REMAIN INTACT) ---
+    # --- MODULE 3: GLOBAL PRIORITY & COMPARISONS (FULLY RESTORED) ---
+    elif menu == "Global Priority & Comparisons":
+        st.header("🏁 Global Priority Analysis")
+        valid_p = df[df['Priority_Year'] > 1900]['Priority_Year']
+        p_range = st.sidebar.slider("Select Priority Year Range", int(valid_p.min()), int(valid_p.max()), (int(valid_p.max()-5), int(valid_p.max())))
+        p_df = filtered_df[(filtered_df['Priority_Year'] >= p_range[0]) & (filtered_df['Priority_Year'] <= p_range[1])]
+        
+        col_chart, col_table = st.columns([2, 1])
+        with col_chart:
+            st.subheader("Monthly Filing Volume (Grouped by Year)")
+            month_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+            actual = p_df.groupby(['Priority_Year', 'Priority_Month']).size().reset_index(name='Number of Applications')
+            actual['Priority_Year'] = actual['Priority_Year'].astype(str)
+            fig_prio_bar = px.bar(actual, x='Priority_Month', y='Number of Applications', color='Priority_Year', barmode='group', text='Number of Applications', category_orders={"Priority_Month": month_order})
+            st.plotly_chart(fig_prio_bar, use_container_width=True)
+            
+        with col_table:
+            st.subheader("📌 Yearly Summary")
+            summary_p = p_df.groupby('Priority_Year').size().reset_index(name='Number of Applications')
+            st.dataframe(summary_p.sort_values('Priority_Year', ascending=False), use_container_width=True, hide_index=True)
+            
+            st.subheader("📅 Monthly Breakdown")
+            detail_p = p_df.groupby(['Priority_Year', 'Priority_Month']).size().reset_index(name='Number of Applications')
+            detail_p['Month_Num'] = pd.to_datetime(detail_p['Priority_Month'], format='%B').dt.month
+            st.dataframe(detail_p.sort_values(['Priority_Year', 'Month_Num'], ascending=[False, True])[['Priority_Year', 'Priority_Month', 'Number of Applications']], use_container_width=True, height=400, hide_index=True)
+
+    # --- CLASSIFICATION & EXPERT SEARCH (INTACT) ---
     elif menu == "Classification & Country Strength":
         st.header("🌍 IPC Strength & Country Activity")
         all_ipcs = [x for x in sorted(filtered_df['Primary_IPC'].dropna().unique()) if x != "Ther"]
@@ -140,20 +174,6 @@ if df is not None:
         leader_counts = filtered_df[filtered_df['Primary_IPC'] == target_ipc].groupby('Country Name (Priority)').size().reset_index(name='Count').sort_values('Count', ascending=False)
         fig_leader = px.bar(leader_counts, x='Country Name (Priority)', y='Count', text='Count', color_discrete_sequence=['#e74c3c'])
         st.plotly_chart(fig_leader, use_container_width=True)
-
-    elif menu == "Global Priority & Comparisons":
-        st.header("🏁 Global Priority Analysis")
-        valid_p = df[df['Priority_Year'] > 1900]['Priority_Year']
-        p_range = st.sidebar.slider("Priority Range", int(valid_p.min()), int(valid_p.max()), (int(valid_p.max()-5), int(valid_p.max())))
-        p_df = filtered_df[(filtered_df['Priority_Year'] >= p_range[0]) & (filtered_df['Priority_Year'] <= p_range[1])]
-        col_chart, col_table = st.columns([2, 1])
-        with col_chart:
-            actual = p_df.groupby(['Priority_Year', 'Priority_Month']).size().reset_index(name='Count')
-            fig_m = px.bar(actual, x='Priority_Month', y='Count', color='Priority_Year', barmode='group', text='Count')
-            st.plotly_chart(fig_m, use_container_width=True)
-        with col_table:
-            st.subheader("📌 Yearly Summary")
-            st.dataframe(p_df.groupby('Priority_Year').size().reset_index(name='Count').sort_values('Priority_Year', ascending=False), use_container_width=True, hide_index=True)
 
     elif menu == "Expert Search":
         st.header("🔍 Identify Experts")
