@@ -20,14 +20,13 @@ def refine_data(df):
     if 'Earliest Priority Date' in df.columns:
         df['Earliest Priority Date'] = pd.to_datetime(df['Earliest Priority Date'], errors='coerce')
         df['Priority_Year'] = df['Earliest Priority Date'].dt.year.fillna(0).astype(int)
-        # ADDED: Extract Month for the 12-month analysis
         df['Priority_Month'] = df['Earliest Priority Date'].dt.month_name()
     
     # 3. IPC Cleaning: Extraction of primary classification
     if 'Classification' in df.columns:
         # Extract the subclass (first 4 characters, e.g., G06F)
-        df['Primary_IPC'] = df['Classification'].str.split(',').str[0].str.strip().str[:4]
-        df = df[df['Primary_IPC'] != "Ther"] # Removes 'There are no classifications'
+        df['Primary_IPC'] = df['Classification'].astype(str).str.split(',').str[0].str.strip().str[:4]
+        df = df[df['Primary_IPC'] != "Ther"] 
     
     # 4. Priority Lag Calculation
     if 'Earliest Priority Date' in df.columns and 'Application Date' in df.columns:
@@ -72,7 +71,21 @@ menu = st.sidebar.radio("Go to:", [
     "Expert Search"
 ])
 
-# Dynamic Filter Logic
+# Global Date Filter for Priority Analysis (Slider)
+if 'Priority_Year' in df.columns:
+    valid_p_years = df[df['Priority_Year'] > 1900]['Priority_Year']
+    min_p = int(valid_p_years.min())
+    max_p = int(valid_p_years.max())
+    
+    st.sidebar.subheader("📅 Priority Year Filter")
+    p_year_range = st.sidebar.slider(
+        "Select Range for Priority Charts",
+        min_value=min_p,
+        max_value=max_p,
+        value=(max_p - 5, max_p)
+    )
+
+# Dynamic Filter Logic for Countries
 all_countries = sorted(df['Country Name (Priority)'].dropna().unique()) if 'Country Name (Priority)' in df.columns else []
 all_years = sorted(df['Year'].unique(), reverse=True) if 'Year' in df.columns else []
 
@@ -98,6 +111,7 @@ if menu == "Time-Series Growth":
         fig_year = px.bar(yearly_counts, x='Year', y='Total', text_auto=True, 
                           color='Total', color_continuous_scale='Blues',
                           labels={'Year': 'UAE Filing Year', 'Total': 'Number of Applications'})
+        fig_year.update_yaxes(nticks=15) # Ensure complete axis labels
         st.plotly_chart(fig_year, use_container_width=True)
         
     with col2:
@@ -108,6 +122,7 @@ if menu == "Time-Series Growth":
         fig_month = px.line(monthly_counts, x='Month', y='Total', markers=True, 
                            color_discrete_sequence=['#E74C3C'],
                            labels={'Month': 'Month', 'Total': 'Applications'})
+        fig_month.update_yaxes(nticks=10)
         st.plotly_chart(fig_month, use_container_width=True)
 
     st.subheader("12-Month Moving Average (Market Velocity)")
@@ -135,53 +150,58 @@ elif menu == "Classification & Country Strength":
     )
     st.plotly_chart(fig_heat, use_container_width=True)
 
-    st.subheader("Country IPC Concentration Details")
-    st.dataframe(heat_df_top.sort_values(by=['Country Name (Priority)', 'Apps'], ascending=[True, False]), use_container_width=True)
-
-# --- GLOBAL PRIORITY & COMPARISONS ---
+# --- UPDATED SECTION: GLOBAL PRIORITY & COMPARISONS ---
 elif menu == "Global Priority & Comparisons":
     st.header("🏁 Global Priority vs Country & Classification")
-    st.markdown("This section analyzes the *original* date the patent was first filed globally, compared to UAE activity.")
-
-    # 12-Month Logic for Priority
-    month_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
     
+    # Apply the Slider Filter to this section specifically
+    p_filtered = filtered_df[(filtered_df['Priority_Year'] >= p_year_range[0]) & 
+                             (filtered_df['Priority_Year'] <= p_year_range[1])]
+
     c1, c2 = st.columns(2)
 
     with c1:
         st.subheader("Invention Volume by Priority Year")
-        p_counts = filtered_df[filtered_df['Priority_Year'] > 1999].groupby('Priority_Year').size().reset_index(name='Count')
+        p_counts = p_filtered.groupby('Priority_Year').size().reset_index(name='Count')
         fig_p_year = px.area(p_counts, x='Priority_Year', y='Count', 
                             labels={'Priority_Year': 'Global Priority Year', 'Count': 'No. of Inventions'},
                             color_discrete_sequence=['#27ae60'])
-        fig_p_year.update_yaxes(nticks=20)
+        fig_p_year.update_yaxes(nticks=20) # Ensure axis numbers are complete
         st.plotly_chart(fig_p_year, use_container_width=True)
 
     with c2:
-        # ADDED SPECIFICATION: MONTH OF EARLIEST PRIORITY VS NO. OF APPLICATIONS
-        st.subheader("Monthly Earliest Priority Distribution")
+        # --- FIXED: ALL 12 MONTHS DISPLAYED REGARDLESS OF DATA ---
+        st.subheader("Monthly Priority: Year-over-Year Comparison")
+        month_order = ['January', 'February', 'March', 'April', 'May', 'June', 
+                       'July', 'August', 'September', 'October', 'November', 'December']
         
-        # Create a full 12-month zero-fill dataset
-        p_years = filtered_df[filtered_df['Priority_Year'] > 2017]['Priority_Year'].unique()
-        template = pd.MultiIndex.from_product([p_years, month_order], names=['Priority_Year', 'Priority_Month']).to_frame(index=False)
-        
-        actual_p = filtered_df.groupby(['Priority_Year', 'Priority_Month']).size().reset_index(name='Apps')
-        p_merged = pd.merge(template, actual_p, on=['Priority_Year', 'Priority_Month'], how='left').fillna(0)
-        p_merged['Priority_Year'] = p_merged['Priority_Year'].astype(str)
+        # 1. Create a template for all years in range and all 12 months
+        years_in_range = range(p_year_range[0], p_year_range[1] + 1)
+        template = pd.MultiIndex.from_product(
+            [years_in_range, month_order], 
+            names=['Priority_Year', 'Priority_Month']
+        ).to_frame(index=False)
 
+        # 2. Get actual counts
+        actual_p = p_filtered.groupby(['Priority_Year', 'Priority_Month']).size().reset_index(name='Apps')
+        
+        # 3. Merge template with actual data and fill missing with 0
+        p_month_counts = pd.merge(template, actual_p, on=['Priority_Year', 'Priority_Month'], how='left').fillna(0)
+        p_month_counts['Priority_Year'] = p_month_counts['Priority_Year'].astype(str) # Convert for legend
+        
         fig_p_month = px.bar(
-            p_merged, x='Priority_Month', y='Apps', color='Priority_Year',
-            barmode='group', text_auto=True,
+            p_month_counts, x='Priority_Month', y='Apps', color='Priority_Year',
+            barmode='group', text_auto=True, 
             category_orders={"Priority_Month": month_order},
-            labels={'Apps': 'No. of Apps', 'Priority_Month': 'Priority Month'},
-            color_discrete_sequence=px.colors.qualitative.Bold
+            labels={'Priority_Month': 'Month', 'Apps': 'No. of Applications', 'Priority_Year': 'Year'},
+            color_discrete_sequence=px.colors.qualitative.Prism
         )
-        fig_p_month.update_yaxes(nticks=15)
+        fig_p_month.update_yaxes(nticks=15) 
         st.plotly_chart(fig_p_month, use_container_width=True)
 
     st.subheader("Priority Distribution by Country")
-    top_10_countries = filtered_df['Country Name (Priority)'].value_counts().nlargest(10).index
-    dist_df = filtered_df[filtered_df['Country Name (Priority)'].isin(top_10_countries) & (filtered_df['Priority_Year'] > 1999)]
+    top_10_countries = p_filtered['Country Name (Priority)'].value_counts().nlargest(10).index
+    dist_df = p_filtered[p_filtered['Country Name (Priority)'].isin(top_10_countries)]
     
     fig_box = px.box(dist_df, x='Priority_Year', y='Country Name (Priority)', 
                      color='Country Name (Priority)',
@@ -191,25 +211,16 @@ elif menu == "Global Priority & Comparisons":
     fig_box.update_layout(showlegend=False)
     st.plotly_chart(fig_box, use_container_width=True)
 
+    # Technology Evolution
     st.subheader("Technology Evolution (Priority Year vs Classifications)")
-    top_5_ipcs = filtered_df['Primary_IPC'].value_counts().nlargest(5).index
-    ipc_time_df = filtered_df[filtered_df['Primary_IPC'].isin(top_5_ipcs) & (filtered_df['Priority_Year'] > 1999)]
+    top_5_ipcs = p_filtered['Primary_IPC'].value_counts().nlargest(5).index
+    ipc_time_df = p_filtered[p_filtered['Primary_IPC'].isin(top_5_ipcs)]
     ipc_trend = ipc_time_df.groupby(['Priority_Year', 'Primary_IPC']).size().reset_index(name='Count')
     
     fig_ipc_time = px.line(ipc_trend, x='Priority_Year', y='Count', color='Primary_IPC', 
                            markers=True, line_shape='spline',
                            labels={'Priority_Year': 'Global Priority Year', 'Count': 'Invention Count'})
     st.plotly_chart(fig_ipc_time, use_container_width=True)
-
-    st.subheader("Country Specialization (Top Countries vs IPC)")
-    spec_df = filtered_df[filtered_df['Country Name (Priority)'].isin(top_10_countries) & filtered_df['Primary_IPC'].isin(top_ipcs)]
-    spec_counts = spec_df.groupby(['Country Name (Priority)', 'Primary_IPC']).size().reset_index(name='Total')
-    
-    fig_spec = px.bar(spec_counts, x='Country Name (Priority)', y='Total', color='Primary_IPC',
-                      title="Tech Sector Breakdown for Top 10 Countries",
-                      labels={'Total': 'Number of Patents', 'Country Name (Priority)': 'Country'},
-                      barmode='stack')
-    st.plotly_chart(fig_spec, use_container_width=True)
 
 elif menu == "Expert Search":
     st.header("🔍 Identify Experts and Patent Details")
