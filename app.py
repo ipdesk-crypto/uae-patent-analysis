@@ -36,13 +36,15 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- DATA REFINEMENT ENGINE (MAINTAINING ACCURACY) ---
+# --- DATA REFINEMENT ENGINE (UNCHANGED) ---
 def refine_data(df):
     df.columns = df.columns.str.strip()
     if 'Application Date' in df.columns:
         df['Application Date'] = pd.to_datetime(df['Application Date'], errors='coerce')
         df['Year'] = df['Application Date'].dt.year.fillna(0).astype(int)
         df['Month'] = df['Application Date'].dt.month_name()
+        # Creation of continuous timeline period (Year-Month)
+        df['Period'] = df['Application Date'].dt.to_period('M').astype(str)
     if 'Earliest Priority Date' in df.columns:
         df['Earliest Priority Date'] = pd.to_datetime(df['Earliest Priority Date'], errors='coerce')
         df['Priority_Year'] = df['Earliest Priority Date'].dt.year.fillna(0).astype(int)
@@ -75,7 +77,6 @@ except:
     st.error("Data Source Error.")
     st.stop()
 
-# --- MODULES ---
 if df is not None:
     menu = st.sidebar.radio("Go to:", ["Time-Series Growth", "Classification & Country Strength", "Global Priority & Comparisons", "Expert Search"])
     all_countries = sorted(df['Country Name (Priority)'].dropna().unique())
@@ -84,40 +85,45 @@ if df is not None:
     if selected_country:
         filtered_df = filtered_df[filtered_df['Country Name (Priority)'].isin(selected_country)]
 
-    # --- TIME-SERIES GROWTH ---
+    # --- TIME-SERIES GROWTH (WITH ENHANCED MONTHLY TREND) ---
     if menu == "Time-Series Growth":
         st.header("📈 Growth Trends & Temporal Analysis")
+        
+        # 1. Yearly Bar Chart (Original)
         col1, col2 = st.columns([2, 1])
         with col1:
             st.subheader("Total Applications per Year")
             yearly_counts = filtered_df[filtered_df['Year'] >= 1990].groupby('Year').size().reset_index(name='Number of Applications')
-            
-            # 1. Main Bar Chart (Original)
-            fig_year = px.bar(yearly_counts, x='Year', y='Number of Applications', text='Number of Applications', 
-                              color_discrete_sequence=['#3498db'])
+            fig_year = px.bar(yearly_counts, x='Year', y='Number of Applications', text='Number of Applications', color_discrete_sequence=['#3498db'])
             fig_year.update_traces(textposition='outside', textfont=dict(family="Arial Black"))
             fig_year.update_xaxes(type='category', tickangle=45)
             st.plotly_chart(fig_year, use_container_width=True)
-            
         with col2:
-            st.subheader("Data Table Verification")
+            st.subheader("Data Registry")
             st.dataframe(yearly_counts.sort_values('Year', ascending=False), use_container_width=True, hide_index=True)
 
         st.markdown("---")
+
+        # 2. CONTINUOUS MONTHLY TREND (New Chart)
+        st.subheader("📉 Full Historical Monthly Trend")
+        st.write("This line shows the continuous growth across every month of every year in the registry.")
         
-        # 2. STANDARD LINE GRAPH FOR TREND (Raw Data Line)
-        st.subheader("📉 Yearly Application Trend (Line View)")
-        fig_trend = px.line(yearly_counts, x='Year', y='Number of Applications', 
-                            title="Filing Trajectory Over Time",
-                            markers=True)
-        fig_trend.update_traces(line=dict(color='#FF6600', width=3), marker=dict(size=8))
-        fig_trend.update_layout(plot_bgcolor='white', xaxis=dict(type='category'))
-        st.plotly_chart(fig_trend, use_container_width=True)
+        # Filter out 0 years and group by the Year-Month Period
+        monthly_trend = filtered_df[filtered_df['Year'] > 0].groupby('Period').size().reset_index(name='Count')
+        
+        fig_full_trend = px.line(monthly_trend, x='Period', y='Count', 
+                                 title="Continuous Monthly Filing Activity",
+                                 labels={'Period': 'Timeline (Year-Month)', 'Count': 'Applications'})
+        fig_full_trend.update_traces(line=dict(color='#FF6600', width=2), mode='lines+markers', marker=dict(size=4))
+        fig_full_trend.update_layout(hovermode="x unified", plot_bgcolor='white')
+        st.plotly_chart(fig_full_trend, use_container_width=True)
 
         st.markdown("---")
-        selected_year = st.sidebar.selectbox("Focus Year (Monthly View)", sorted(df[df['Year'] > 0]['Year'].unique(), reverse=True))
+        
+        # 3. Specific Year Monthly View (Original)
+        selected_year = st.sidebar.selectbox("Focus Year (Monthly Table)", sorted(df[df['Year'] > 0]['Year'].unique(), reverse=True))
         if selected_year:
-            st.subheader(f"Monthly Distribution for {selected_year}")
+            st.subheader(f"Detailed Monthly View for {selected_year}")
             year_df = filtered_df[filtered_df['Year'] == selected_year]
             month_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
             monthly_counts = year_df.groupby('Month').size().reindex(month_order, fill_value=0).reset_index(name='Number of Applications')
@@ -125,7 +131,7 @@ if df is not None:
             fig_month.update_traces(textposition='top center', textfont=dict(family="Arial Black"))
             st.plotly_chart(fig_month, use_container_width=True)
 
-    # --- OTHER MODULES (UNCHANGED) ---
+    # --- ALL OTHER MODULES (UNCHANGED) ---
     elif menu == "Classification & Country Strength":
         st.header("🌍 IPC Strength & Country Activity")
         all_ipcs = [x for x in sorted(filtered_df['Primary_IPC'].dropna().unique()) if x != "Ther"]
