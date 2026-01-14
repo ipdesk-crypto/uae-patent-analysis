@@ -87,7 +87,7 @@ if df is not None:
     if menu == "Time-Series Growth":
         st.header("📈 Growth Trends & Temporal Analysis")
         
-        # 1. BAR GRAPH FIRST (WITH ORIGINAL TABLE)
+        # 1. BAR GRAPH FIRST
         col1, col2 = st.columns([2, 1])
         with col1:
             st.subheader("Total Applications per Year (Yearly Bar)")
@@ -102,20 +102,21 @@ if df is not None:
 
         st.markdown("---")
 
-        # 2. YEARLY LINE TREND (APPLICATIONS VS YEAR)
+        # 2. YEARLY LINE TREND (BRIGHT ORANGE)
         st.subheader("📉 Yearly Application Trend (Line View)")
         fig_yearly_trend = px.line(yearly_counts, x='Year', y='Number of Applications', markers=True, text='Number of Applications')
-        fig_yearly_trend.update_traces(line=dict(color='#FF6600', width=3), textposition='top center', textfont=dict(family="Arial Black"))
+        fig_yearly_trend.update_traces(line=dict(color='#FF3300', width=4), textposition='top center', textfont=dict(family="Arial Black", color="black"))
         fig_yearly_trend.update_xaxes(type='category')
         st.plotly_chart(fig_yearly_trend, use_container_width=True)
 
         st.markdown("---")
 
-        # 3. CONTINUOUS MONTHLY LINE GRAPH (ALL MONTHS TREND)
+        # 3. CONTINUOUS MONTHLY LINE GRAPH (BRIGHT CYAN)
         st.subheader("📅 Full Historical Monthly Trend")
         monthly_trend = filtered_df[filtered_df['Year'] > 0].groupby('Period').size().reset_index(name='Count')
         fig_monthly_trend = px.line(monthly_trend, x='Period', y='Count', markers=True, text='Count', labels={'Count': 'Applications'})
-        fig_monthly_trend.update_traces(line=dict(color='#002147', width=2), textposition='top center', textfont=dict(size=9))
+        # Using Electric Cyan for maximum visibility
+        fig_monthly_trend.update_traces(line=dict(color='#00FFFF', width=3), marker=dict(color='#002147'), textposition='top center', textfont=dict(size=10, color="black", family="Arial Black"))
         st.plotly_chart(fig_monthly_trend, use_container_width=True)
 
         st.markdown("---")
@@ -131,7 +132,7 @@ if df is not None:
             fig_month.update_traces(textposition='top center', textfont=dict(family="Arial Black"))
             st.plotly_chart(fig_month, use_container_width=True)
 
-    # --- ALL OTHER MODULES (UNCHANGED & INTACT) ---
+    # --- ALL OTHER MODULES (UNCHANGED) ---
     elif menu == "Classification & Country Strength":
         st.header("🌍 IPC Strength & Country Activity")
         all_ipcs = [x for x in sorted(filtered_df['Primary_IPC'].dropna().unique()) if x != "Ther"]
