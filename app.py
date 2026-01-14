@@ -24,7 +24,7 @@ def refine_data(df):
         df['Priority_Year'] = df['Earliest Priority Date'].dt.year.fillna(0).astype(int)
         df['Priority_Month'] = df['Earliest Priority Date'].dt.month_name()
     
-    # 3. IPC Extraction (Stripped to first 4 chars)
+    # 3. IPC Extraction
     if 'Classification' in df.columns:
         df['Primary_IPC'] = df['Classification'].astype(str).str.split(',').str[0].str.strip().str[:4]
     
@@ -82,8 +82,6 @@ if df is not None:
             st.subheader("Total Applications per Year (With Numbers)")
             yearly_counts = filtered_df[filtered_df['Year'] >= 1990].groupby('Year').size().reset_index(name='Total')
             fig_year = px.bar(yearly_counts, x='Year', y='Total', text='Total', labels={'Year': 'Filing Year', 'Total': 'Count'}, color_discrete_sequence=['#3498db'])
-            
-            # FIXED Trace update with dictionary for font weight
             fig_year.update_traces(textposition='outside', textfont=dict(size=14, family="Arial Black"))
             fig_year.update_xaxes(type='category', tickangle=45)
             fig_year.update_yaxes(title="No. of Applications", dtick=10, showgrid=True)
@@ -95,21 +93,13 @@ if df is not None:
     # --- IPC LEADERSHIP ANALYSIS ---
     elif menu == "Classification & Country Strength":
         st.header("🌍 IPC Strength & Country Activity")
-        
         st.subheader("🚀 Technology Leadership by Country")
         all_ipcs = sorted(filtered_df['Primary_IPC'].dropna().unique())
         all_ipcs = [x for x in all_ipcs if x != "Ther"]
-        
         target_ipc = st.selectbox("Select an IPC Classification to see leading countries:", all_ipcs)
-        
         ipc_leader_df = filtered_df[filtered_df['Primary_IPC'] == target_ipc]
         leader_counts = ipc_leader_df.groupby('Country Name (Priority)').size().reset_index(name='Application Count').sort_values('Application Count', ascending=False)
-        
-        fig_leader = px.bar(leader_counts, x='Country Name (Priority)', y='Application Count', 
-                            text='Application Count', title=f"Top Countries for {target_ipc}",
-                            color='Application Count', color_continuous_scale='Reds')
-        
-        # FIXED Trace update with dictionary for font weight
+        fig_leader = px.bar(leader_counts, x='Country Name (Priority)', y='Application Count', text='Application Count', title=f"Top Countries for {target_ipc}", color='Application Count', color_continuous_scale='Reds')
         fig_leader.update_traces(textposition='outside', textfont=dict(family="Arial Black"))
         fig_leader.update_yaxes(dtick=5)
         st.plotly_chart(fig_leader, use_container_width=True)
@@ -118,14 +108,11 @@ if df is not None:
         st.subheader("Global Classification Heatmap")
         heat_data = filtered_df.dropna(subset=['Primary_IPC', 'Country Name (Priority)'])
         heat_data = heat_data[heat_data['Primary_IPC'] != "Ther"]
-        
         if not heat_data.empty:
             heat_grouped = heat_data.groupby(['Country Name (Priority)', 'Primary_IPC']).size().reset_index(name='Apps')
             top_ipcs = heat_grouped.groupby('Primary_IPC')['Apps'].sum().nlargest(20).index
             heat_df_top = heat_grouped[heat_grouped['Primary_IPC'].isin(top_ipcs)]
-            
-            fig_heat = px.density_heatmap(heat_df_top, x="Primary_IPC", y="Country Name (Priority)", z="Apps",
-                                          color_continuous_scale="Viridis", text_auto=True)
+            fig_heat = px.density_heatmap(heat_df_top, x="Primary_IPC", y="Country Name (Priority)", z="Apps", color_continuous_scale="Viridis", text_auto=True)
             st.plotly_chart(fig_heat, use_container_width=True)
 
     # --- GLOBAL PRIORITY ---
@@ -136,20 +123,34 @@ if df is not None:
         p_range = st.sidebar.slider("Priority Year Range", p_min, p_max, (p_max-5, p_max))
         p_df = filtered_df[(filtered_df['Priority_Year'] >= p_range[0]) & (filtered_df['Priority_Year'] <= p_range[1])]
         
-        month_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-        years = range(p_range[0], p_range[1] + 1)
-        template = pd.MultiIndex.from_product([years, month_order], names=['Priority_Year', 'Priority_Month']).to_frame(index=False)
-        actual = p_df.groupby(['Priority_Year', 'Priority_Month']).size().reset_index(name='Apps')
-        merged = pd.merge(template, actual, on=['Priority_Year', 'Priority_Month'], how='left').fillna(0)
-        merged['Priority_Year'] = merged['Priority_Year'].astype(str)
+        col_chart, col_table = st.columns([2, 1])
         
-        fig_m = px.bar(merged, x='Priority_Month', y='Apps', color='Priority_Year', barmode='group', text='Apps',
-                       category_orders={"Priority_Month": month_order}, color_discrete_sequence=px.colors.qualitative.Prism)
-        
-        # FIXED Trace update with dictionary for font weight
-        fig_m.update_traces(textposition='outside', textfont=dict(family="Arial Black"))
-        fig_m.update_yaxes(dtick=5)
-        st.plotly_chart(fig_m, use_container_width=True)
+        with col_chart:
+            st.subheader("Monthly Priority Distribution (Grouped by Year)")
+            month_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+            years = range(p_range[0], p_range[1] + 1)
+            template = pd.MultiIndex.from_product([years, month_order], names=['Priority_Year', 'Priority_Month']).to_frame(index=False)
+            actual = p_df.groupby(['Priority_Year', 'Priority_Month']).size().reset_index(name='Apps')
+            merged = pd.merge(template, actual, on=['Priority_Year', 'Priority_Month'], how='left').fillna(0)
+            merged['Priority_Year'] = merged['Priority_Year'].astype(str)
+            
+            fig_m = px.bar(merged, x='Priority_Month', y='Apps', color='Priority_Year', barmode='group', text='Apps',
+                           category_orders={"Priority_Month": month_order}, color_discrete_sequence=px.colors.qualitative.Prism)
+            fig_m.update_traces(textposition='outside', textfont=dict(family="Arial Black"))
+            fig_m.update_yaxes(dtick=5)
+            st.plotly_chart(fig_m, use_container_width=True)
+
+        with col_table:
+            st.subheader("📌 Priority Summary Table")
+            st.write(f"Counts for range: {p_range[0]} - {p_range[1]}")
+            # Dynamic Summary Table
+            summary_p = p_df.groupby('Priority_Year').size().reset_index(name='Total Inventions')
+            st.dataframe(summary_p.sort_values('Priority_Year', ascending=False), use_container_width=True)
+            
+            # Additional detail: Monthly breakdown in the selected range
+            st.write("Full Range Detail")
+            detail_p = p_df.groupby(['Priority_Year', 'Priority_Month']).size().reset_index(name='Apps')
+            st.dataframe(detail_p.sort_values(['Priority_Year', 'Apps'], ascending=[False, False]), use_container_width=True, height=300)
 
     # --- EXPERT SEARCH ---
     elif menu == "Expert Search":
