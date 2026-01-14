@@ -11,7 +11,7 @@ def refine_data(df):
     # Clean column names
     df.columns = df.columns.str.strip()
 
-    # 1. Date processing for Application Date (UAE Filing)
+    # 1. Date processing for Application Date (UAE Filing) - Accurate Parsing
     if 'Application Date' in df.columns:
         df['Application Date'] = pd.to_datetime(df['Application Date'], errors='coerce')
         df['Year'] = df['Application Date'].dt.year.fillna(0).astype(int)
@@ -24,7 +24,7 @@ def refine_data(df):
         df['Priority_Year'] = df['Earliest Priority Date'].dt.year.fillna(0).astype(int)
         df['Priority_Month'] = df['Earliest Priority Date'].dt.month_name()
     
-    # 3. IPC Extraction (Keep all data initially for accuracy)
+    # 3. IPC Extraction
     if 'Classification' in df.columns:
         df['Primary_IPC'] = df['Classification'].astype(str).str.split(',').str[0].str.strip().str[:4]
     
@@ -71,8 +71,10 @@ if menu == "Time-Series Growth":
         fig_year = px.bar(yearly_counts, x='Year', y='Total', text_auto=True,
                           labels={'Year': 'Filing Year', 'Total': 'Number of Applications'},
                           color_discrete_sequence=['#3498db'])
-        fig_year.update_xaxes(type='category', tickangle=45) # Categorical for accuracy
-        fig_year.update_yaxes(title="Count", dtick=5 if yearly_counts['Total'].max() < 100 else 20)
+        
+        # IMPROVED LABELING
+        fig_year.update_xaxes(type='category', tickangle=45, title="Year")
+        fig_year.update_yaxes(title="No. of Applications", dtick=5, showgrid=True)
         st.plotly_chart(fig_year, use_container_width=True)
         
     with col2:
@@ -80,21 +82,19 @@ if menu == "Time-Series Growth":
         year_df = filtered_df[filtered_df['Year'] == selected_year]
         month_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
         monthly_counts = year_df.groupby('Month').size().reindex(month_order, fill_value=0).reset_index(name='Total')
+        
         fig_month = px.line(monthly_counts, x='Month', y='Total', markers=True, labels={'Total': 'Applications'})
-        fig_month.update_yaxes(dtick=5)
+        fig_month.update_yaxes(dtick=5, showgrid=True)
         st.plotly_chart(fig_month, use_container_width=True)
 
 elif menu == "Classification & Country Strength":
     st.header("🌍 IPC Strength & Country Activity")
     
-    # Accuracy fix: Remove invalid IPCs only for this specific visualization
     heat_data = filtered_df.dropna(subset=['Primary_IPC', 'Country Name (Priority)'])
     heat_data = heat_data[heat_data['Primary_IPC'] != "Ther"]
     
     if not heat_data.empty:
         heat_grouped = heat_data.groupby(['Country Name (Priority)', 'Primary_IPC']).size().reset_index(name='Apps')
-        
-        # Get top 20 IPCs to keep the heatmap readable
         top_ipcs = heat_grouped.groupby('Primary_IPC')['Apps'].sum().nlargest(20).index
         heat_df_top = heat_grouped[heat_grouped['Primary_IPC'].isin(top_ipcs)]
         
@@ -103,11 +103,11 @@ elif menu == "Classification & Country Strength":
             color_continuous_scale="Viridis", text_auto=True,
             labels={'Apps': 'Count', 'Primary_IPC': 'IPC Code', 'Country Name (Priority)': 'Country'},
         )
+        fig_heat.update_layout(xaxis_title="Primary IPC Code", yaxis_title="Country of Priority")
         st.plotly_chart(fig_heat, use_container_width=True)
-        st.subheader("Raw Data Breakdown")
+        
+        st.subheader("Detailed Classification Table")
         st.dataframe(heat_df_top.sort_values(by=['Country Name (Priority)', 'Apps'], ascending=[True, False]), use_container_width=True)
-    else:
-        st.warning("No classification data found for the selected filters.")
 
 elif menu == "Global Priority & Comparisons":
     st.header("🏁 Global Priority Analysis")
@@ -122,11 +122,12 @@ elif menu == "Global Priority & Comparisons":
         st.subheader("Inventions by Priority Year")
         p_counts = p_df.groupby('Priority_Year').size().reset_index(name='Count')
         fig_p = px.area(p_counts, x='Priority_Year', y='Count', color_discrete_sequence=['#27ae60'])
-        fig_p.update_xaxes(type='category')
+        fig_p.update_xaxes(type='category', title="Priority Year")
+        fig_p.update_yaxes(dtick=5, title="No. of Inventions")
         st.plotly_chart(fig_p, use_container_width=True)
 
     with c2:
-        st.subheader("Monthly Priority (12-Month View)")
+        st.subheader("Monthly Priority (Year-over-Year)")
         month_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
         
         years = range(p_range[0], p_range[1] + 1)
@@ -139,7 +140,10 @@ elif menu == "Global Priority & Comparisons":
         fig_m = px.bar(merged, x='Priority_Month', y='Apps', color='Priority_Year', 
                        barmode='group', text_auto=True, category_orders={"Priority_Month": month_order},
                        color_discrete_sequence=px.colors.qualitative.Prism)
-        fig_m.update_yaxes(dtick=5)
+        
+        # IMPROVED LABELING
+        fig_m.update_xaxes(title="Month of Priority")
+        fig_m.update_yaxes(title="No. of Applications", dtick=5, showgrid=True)
         st.plotly_chart(fig_m, use_container_width=True)
 
 elif menu == "Expert Search":
@@ -150,4 +154,3 @@ elif menu == "Expert Search":
         results = filtered_df[mask]
         st.write(f"Matches found: {len(results)}")
         st.dataframe(results[['Application Number', 'Title', 'Primary_IPC', 'Country Name (Priority)', 'Application Date', 'Priority_Year']], use_container_width=True)
-# Other sections remain intact but hidden for brevity - they use the same filtered_df logic.
