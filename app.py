@@ -51,7 +51,7 @@ st.sidebar.title("🛠️ Analysis Tools")
 menu = st.sidebar.radio("Go to:", ["Time-Series Growth", "Classification & Country Strength", "Global Priority & Comparisons", "Expert Search"])
 
 # Sidebar Slider for Priority Year Range
-if 'Priority_Year' in df.columns:
+if df is not None and 'Priority_Year' in df.columns:
     valid_years = df[df['Priority_Year'] > 1900]['Priority_Year']
     min_p_year = int(valid_years.min())
     max_p_year = int(valid_years.max())
@@ -67,7 +67,7 @@ if 'Priority_Year' in df.columns:
     # Apply global filter
     filtered_df = df[(df['Priority_Year'] >= p_year_range[0]) & (df['Priority_Year'] <= p_year_range[1])]
 else:
-    filtered_df = df.copy()
+    filtered_df = df.copy() if df is not None else pd.DataFrame()
 
 # --- MAIN DASHBOARD ---
 st.title("🇦🇪 UAE Patent Analysis Engine")
@@ -78,8 +78,8 @@ if menu == "Time-Series Growth":
     with c1:
         yearly = filtered_df.groupby('Year').size().reset_index(name='Total')
         fig = px.bar(yearly, x='Year', y='Total', text_auto=True, title="UAE Filing Volume")
-        # Ensure max value is visible on axis
-        fig.update_yaxes(nticks=10, gridcolor='LightGray')
+        # Ensure axis numbers are complete
+        fig.update_yaxes(nticks=15, showgrid=True)
         st.plotly_chart(fig, use_container_width=True)
     with c2:
         growth_data = filtered_df.groupby('YearMonth').size().reset_index(name='Count')
@@ -92,7 +92,8 @@ elif menu == "Classification & Country Strength":
     heat_df = filtered_df.groupby(['Country Name (Priority)', 'Primary_IPC']).size().reset_index(name='Apps')
     top_ipcs = heat_df.groupby('Primary_IPC')['Apps'].sum().nlargest(15).index
     heat_df_top = heat_df[heat_df['Primary_IPC'].isin(top_ipcs)]
-    st.plotly_chart(px.density_heatmap(heat_df_top, x="Primary_IPC", y="Country Name (Priority)", z="Apps", text_auto=True), use_container_width=True)
+    fig_heat = px.density_heatmap(heat_df_top, x="Primary_IPC", y="Country Name (Priority)", z="Apps", text_auto=True)
+    st.plotly_chart(fig_heat, use_container_width=True)
 
 elif menu == "Global Priority & Comparisons":
     st.header("🏁 Global Priority Analysis")
@@ -103,8 +104,8 @@ elif menu == "Global Priority & Comparisons":
         st.subheader("Invention Volume by Priority Year")
         p_counts = filtered_df.groupby('Priority_Year').size().reset_index(name='Count')
         fig_p = px.area(p_counts, x='Priority_Year', y='Count', color_discrete_sequence=['#27ae60'])
-        # Optimization: Force Y-axis to show more labels
-        fig_p.update_yaxes(nticks=15, showgrid=True)
+        # Dense axis labels
+        fig_p.update_yaxes(nticks=20, showgrid=True)
         st.plotly_chart(fig_p, use_container_width=True)
 
     with c2:
@@ -118,27 +119,20 @@ elif menu == "Global Priority & Comparisons":
         
         fig_p_month = px.bar(
             p_grouped, x='Priority_Month', y='Apps', color='Priority_Year',
-            barmode='group', text_auto=True,
+            barmode='group', text_auto=True, # text_auto shows the highest number clearly
             category_orders={"Priority_Month": month_order},
             labels={'Priority_Month': 'Month', 'Apps': 'Apps', 'Priority_Year': 'Year'},
             color_discrete_sequence=px.colors.qualitative.Prism
         )
-        
-        # --- AXIS LABEL FIX ---
-        # nticks forces Plotly to show more numbers on the Y-axis
-        # text_auto=True (added above) puts the exact number on top of the bars
-        fig_p_month.update_yaxes(nticks=10, title="Total Applications")
-        fig_p_month.update_layout(uniformtext_minsize=8, uniformtext_mode='hide')
-        
+        # Fix: Force axis to be complete and detailed
+        fig_p_month.update_yaxes(nticks=15, title="Total Applications")
         st.plotly_chart(fig_p_month, use_container_width=True)
 
-    # Country Breakdown
     st.subheader("Top 10 Countries: Priority Trends")
     top_countries = filtered_df['Country Name (Priority)'].value_counts().nlargest(10).index
     box_df = filtered_df[filtered_df['Country Name (Priority)'].isin(top_countries)]
     fig_box = px.box(box_df, x='Priority_Year', y='Country Name (Priority)', color='Country Name (Priority)')
-    # Ensure years on X-axis are clearly labeled
-    fig_box.update_xaxes(nticks=20)
+    fig_box.update_xaxes(nticks=25)
     st.plotly_chart(fig_box, use_container_width=True)
 
 elif menu == "Expert Search":
