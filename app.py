@@ -33,6 +33,7 @@ st.markdown("""
     <style>
     [data-testid="stSidebar"] { background-color: #002147; color: white; }
     h1, h2, h3 { color: #002147; }
+    .stPlotlyChart { background-color: white !important; border-radius: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -61,7 +62,7 @@ with st.sidebar:
         st.title("🏛️ ARCHISTRATEGOS")
     
     st.markdown("---")
-    data_source = st.sidebar.radio("Select Data Source:", ["Default UAE Dataset", "Upload Custom CSV"])
+    data_source = st.radio("Select Data Source:", ["Default UAE Dataset", "Upload Custom CSV"])
 
 # Data Loading Logic
 try:
@@ -89,45 +90,52 @@ if df is not None:
     if menu == "Time-Series Growth":
         st.header("📈 Growth Trends & Temporal Analysis")
         
-        # A. YEARLY VIEW (INTACT)
+        # A. YEARLY VIEW (THE BAR CHART)
         col1, col2 = st.columns([2, 1])
         with col1:
-            st.subheader("Total Applications per Year")
+            st.subheader("Total Applications per Year (Bar Chart)")
             yearly_counts = filtered_df[filtered_df['Year'] >= 1990].groupby('Year').size().reset_index(name='Number of Applications')
             fig_year = px.bar(yearly_counts, x='Year', y='Number of Applications', text='Number of Applications', color_discrete_sequence=['#3498db'])
             fig_year.update_traces(textposition='outside', textfont=dict(family="Arial Black"))
-            fig_year.update_xaxes(type='category', tickangle=45)
+            fig_year.update_layout(plot_bgcolor='white', paper_bgcolor='white')
             st.plotly_chart(fig_year, use_container_width=True)
         with col2:
-            st.subheader("Yearly Data Registry")
+            st.subheader("Yearly Registry")
             st.dataframe(yearly_counts.sort_values('Year', ascending=False), use_container_width=True, hide_index=True)
 
         st.markdown("---")
 
-        # B. CONTINUOUS MONTHLY TREND (LINE VIEW WITH PEAK NUMBERS)
-        st.subheader("📉 Continuous Historical Trend (By Month)")
-        st.write("Raw filing trajectory with monthly data labels.")
+        # B. CONTINUOUS MONTHLY TREND (THE LINE GRAPH - IMPROVED VISIBILITY)
+        st.subheader("📉 Full Historical Monthly Trend")
         monthly_trend = filtered_df[filtered_df['Year'] > 0].groupby('Period').size().reset_index(name='Count')
         
-        fig_full_trend = px.line(monthly_trend, x='Period', y='Count', 
-                                 labels={'Period': 'Year-Month Timeline', 'Count': 'Applications'},
-                                 text='Count') # Added data labels here
-        fig_full_trend.update_traces(
-            line=dict(color='#FF6600', width=3), 
-            mode='lines+markers+text', # Enabled text mode
-            marker=dict(size=6),
-            textposition='top center', # Position numbers above the points
-            textfont=dict(family="Arial Black", size=10)
+        fig_full_trend = go.Figure()
+        fig_full_trend.add_trace(go.Scatter(
+            x=monthly_trend['Period'],
+            y=monthly_trend['Count'],
+            mode='lines+markers+text',
+            text=monthly_trend['Count'],
+            textposition='top center',
+            line=dict(color='#FF6600', width=3),
+            marker=dict(size=8, color='#002147'),
+            textfont=dict(family="Arial Black", size=12, color="black") # Clear bold labels
+        ))
+        
+        fig_full_trend.update_layout(
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            xaxis=dict(showgrid=False, title="Timeline (Year-Month)"),
+            yaxis=dict(showgrid=True, gridcolor='#f0f0f0', title="Applications"),
+            hovermode="x unified"
         )
-        fig_full_trend.update_layout(hovermode="x unified", plot_bgcolor='white')
         st.plotly_chart(fig_full_trend, use_container_width=True)
 
         st.markdown("---")
         
         # C. SPECIFIC YEAR FOCUS (INTACT)
-        selected_year = st.sidebar.selectbox("Focus Year (Monthly Detail)", sorted(df[df['Year'] > 0]['Year'].unique(), reverse=True))
+        selected_year = st.sidebar.selectbox("Focus Year Detail", sorted(df[df['Year'] > 0]['Year'].unique(), reverse=True))
         if selected_year:
-            st.subheader(f"Detailed Monthly View for {selected_year}")
+            st.subheader(f"Monthly Distribution: {selected_year}")
             year_df = filtered_df[filtered_df['Year'] == selected_year]
             month_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
             monthly_counts = year_df.groupby('Month').size().reindex(month_order, fill_value=0).reset_index(name='Number of Applications')
