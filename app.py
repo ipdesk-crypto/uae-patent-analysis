@@ -8,22 +8,23 @@ st.set_page_config(page_title="UAE Patent Analysis Pro", layout="wide", page_ico
 
 # --- DATA REFINEMENT ENGINE ---
 def refine_data(df):
-    """Preserves existing cleaning logic and adds priority-based time features."""
-    # 1. Date processing for Application Date
+    """Refines patent data for both UAE-specific and Global Priority analysis."""
+    # 1. Date processing for Application Date (UAE filing)
     if 'Application Date' in df.columns:
         df['Application Date'] = pd.to_datetime(df['Application Date'], errors='coerce')
         df['Year'] = df['Application Date'].dt.year.fillna(0).astype(int)
         df['Month'] = df['Application Date'].dt.month_name()
         df['YearMonth'] = df['Application Date'].dt.to_period('M').astype(str)
     
-    # 2. Date processing for Earliest Priority Date
+    # 2. Date processing for Earliest Priority Date (Global birth of invention)
     if 'Earliest Priority Date' in df.columns:
         df['Earliest Priority Date'] = pd.to_datetime(df['Earliest Priority Date'], errors='coerce')
         df['Priority_Year'] = df['Earliest Priority Date'].dt.year.fillna(0).astype(int)
+        df['Priority_Month'] = df['Earliest Priority Date'].dt.month_name()
     
-    # 3. IPC Cleaning: Extraction of primary classification
+    # 3. IPC Cleaning: Extraction of primary subclass
     if 'Classification' in df.columns:
-        # Extract the subclass (first 4 characters, e.g., G06F)
+        # Extract the subclass (e.g., G06F)
         df['Primary_IPC'] = df['Classification'].str.split(',').str[0].str.strip().str[:4]
         df = df[df['Primary_IPC'] != "Ther"] # Removes 'There are no classifications'
     
@@ -33,7 +34,7 @@ def refine_data(df):
         
     return df
 
-# --- SIDEBAR: DATA SOURCE SELECTOR ---
+# --- SIDEBAR: DATA SOURCE ---
 st.sidebar.title("📁 Data Management")
 data_source = st.sidebar.radio("Select Data Source:", ["Default UAE Dataset", "Upload Custom CSV"])
 
@@ -60,26 +61,32 @@ else:
         st.error("Default dataset not found. Please upload a CSV instead.")
         st.stop()
 
+# --- PRE-CALCULATE SHARED VARIABLES (Fixes NameError) ---
+# We calculate these once so they are available across all menu tabs
+top_10_countries = df['Country Name (Priority)'].value_counts().nlargest(10).index
+global_heat_df = df.groupby(['Country Name (Priority)', 'Primary_IPC']).size().reset_index(name='Apps')
+top_ipcs_list = global_heat_df.groupby('Primary_IPC')['Apps'].sum().nlargest(20).index
+
 # --- SIDEBAR: NAVIGATION & FILTERS ---
 st.sidebar.markdown("---")
 st.sidebar.title("🛠️ Analysis Tools")
 menu = st.sidebar.radio("Go to:", [
     "Time-Series Growth", 
     "Classification & Country Strength", 
-    "Global Priority & Comparisons", # NEW SECTION
+    "Global Priority & Comparisons", 
     "Expert Search"
 ])
 
-# Dynamic Filter Logic
-all_countries = sorted(df['Country Name (Priority)'].dropna().unique()) if 'Country Name (Priority)' in df.columns else []
-all_years = sorted(df['Year'].unique(), reverse=True) if 'Year' in df.columns else []
+# Dynamic Filters
+all_countries = sorted(df['Country Name (Priority)'].dropna().unique())
+all_years = sorted(df['Year'].unique(), reverse=True)
 
 selected_country = st.sidebar.multiselect("Filter by Country", all_countries)
 selected_year = st.sidebar.selectbox("Focus Year (for monthly view)", all_years)
 
-# Filtering logic
+# Apply Global Filters to working DF
 filtered_df = df.copy()
-if selected_country and 'Country Name (Priority)' in filtered_df.columns:
+if selected_country:
     filtered_df = filtered_df[filtered_df['Country Name (Priority)'].isin(selected_country)]
 
 # --- MAIN DASHBOARD ---
@@ -91,11 +98,11 @@ if menu == "Time-Series Growth":
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("Applications per Year (UAE Filing Date)")
+        st.subheader("Applications per Year (UAE Filing)")
         yearly_counts = filtered_df[filtered_df['Year'] > 1999].groupby('Year').size().reset_index(name='Total')
         fig_year = px.bar(yearly_counts, x='Year', y='Total', text_auto=True, 
                           color='Total', color_continuous_scale='Blues',
-                          labels={'Year': 'UAE Filing Year', 'Total': 'Number of Applications'})
+                          labels={'Year': 'UAE Filing Year', 'Total': 'Count'})
         st.plotly_chart(fig_year, use_container_width=True)
         
     with col2:
@@ -116,16 +123,13 @@ if menu == "Time-Series Growth":
     fig_ma = go.Figure()
     fig_ma.add_trace(go.Scatter(x=growth_data['YearMonth'], y=growth_data['Count'], name="Monthly Apps", opacity=0.3, line=dict(color='gray')))
     fig_ma.add_trace(go.Scatter(x=growth_data['YearMonth'], y=growth_data['MA12'], name="12-Month Trend", line=dict(color='red', width=3)))
-    fig_ma.update_layout(xaxis_title="Timeline", yaxis_title="Number of Filings")
+    fig_ma.update_layout(xaxis_title="Timeline", yaxis_title="No. of Filings")
     st.plotly_chart(fig_ma, use_container_width=True)
 
 elif menu == "Classification & Country Strength":
     st.header("🌍 IPC Strength & Country Activity")
-    
     st.subheader("Interactive Heatmap: IPC vs Country")
-    heat_df = filtered_df.groupby(['Country Name (Priority)', 'Primary_IPC']).size().reset_index(name='Apps')
-    top_ipcs = heat_df.groupby('Primary_IPC')['Apps'].sum().nlargest(20).index
-    heat_df_top = heat_df[heat_df['Primary_IPC'].isin(top_ipcs)]
+    heat_df_top = global_heat_df[global_heat_df['Primary_IPC'].isin(top_ipcs_list)]
     
     fig_heat = px.density_heatmap(
         heat_df_top, x="Primary_IPC", y="Country Name (Priority)", z="Apps",
@@ -133,67 +137,56 @@ elif menu == "Classification & Country Strength":
         labels={'Apps': 'Count', 'Primary_IPC': 'IPC Code', 'Country Name (Priority)': 'Country'},
     )
     st.plotly_chart(fig_heat, use_container_width=True)
-
-    st.subheader("Country IPC Concentration Details")
     st.dataframe(heat_df_top.sort_values(by=['Country Name (Priority)', 'Apps'], ascending=[True, False]), use_container_width=True)
 
-# --- NEW SECTION: GLOBAL PRIORITY & COMPARISONS ---
 elif menu == "Global Priority & Comparisons":
-    st.header("🏁 Global Priority vs Country & Classification")
-    st.markdown("This section analyzes the *original* date the patent was first filed globally, compared to UAE activity.")
+    st.header("🏁 Global Priority & Seasonal Analysis")
+    
+    # 1. NEW GRAPH: Priority Month vs No. of Applications (Colored by Year)
+    st.subheader("📅 Global Filing Seasonality (Month vs. Applications)")
+    month_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+    
+    # Prepare seasonal data
+    seasonal_df = filtered_df[filtered_df['Priority_Year'] > 1999].copy()
+    seasonal_counts = seasonal_df.groupby(['Priority_Year', 'Priority_Month']).size().reset_index(name='Count')
+    
+    fig_seasonal = px.line(
+        seasonal_counts, x='Priority_Month', y='Count', color='Priority_Year',
+        category_orders={"Priority_Month": month_order},
+        markers=True,
+        labels={'Priority_Month': 'Earliest Priority Month', 'Count': 'No. of Applications', 'Priority_Year': 'Year'},
+        title="Comparison: Global Invention Month Across Years"
+    )
+    fig_seasonal.update_layout(xaxis_title="Priority Month", yaxis_title="Number of Applications")
+    st.plotly_chart(fig_seasonal, use_container_width=True)
 
     c1, c2 = st.columns(2)
-
     with c1:
-        # Comparison 1: Earliest Priority Year vs Number of Applications
         st.subheader("Invention Volume by Priority Year")
         p_counts = filtered_df[filtered_df['Priority_Year'] > 1999].groupby('Priority_Year').size().reset_index(name='Count')
         fig_p_year = px.area(p_counts, x='Priority_Year', y='Count', 
-                            labels={'Priority_Year': 'Global Priority Year', 'Count': 'No. of Inventions'},
+                            labels={'Priority_Year': 'Global Priority Year', 'Count': 'Inventions'},
                             color_discrete_sequence=['#27ae60'])
         st.plotly_chart(fig_p_year, use_container_width=True)
 
     with c2:
-        # Comparison 2: Country vs Earliest Priority Year (Average Lag/Age)
         st.subheader("Priority Distribution by Country")
-        top_10_countries = filtered_df['Country Name (Priority)'].value_counts().nlargest(10).index
         dist_df = filtered_df[filtered_df['Country Name (Priority)'].isin(top_10_countries) & (filtered_df['Priority_Year'] > 1999)]
-        
-        # We use a box plot because it's the best way to see the range of years a country has been active
-        fig_box = px.box(dist_df, x='Priority_Year', y='Country Name (Priority)', 
-                         color='Country Name (Priority)',
-                         labels={'Priority_Year': 'Global Priority Year', 'Country Name (Priority)': 'Country'},
-                         title="When did these countries start filing their patents?")
+        fig_box = px.box(dist_df, x='Priority_Year', y='Country Name (Priority)', color='Country Name (Priority)',
+                         labels={'Priority_Year': 'Priority Year', 'Country Name (Priority)': 'Country'})
         fig_box.update_layout(showlegend=False)
         st.plotly_chart(fig_box, use_container_width=True)
 
-    # Comparison 3: Earliest Priority vs Classifications
-    st.subheader("Technology Evolution (Priority Year vs Classifications)")
-    # Get top 5 IPCs to avoid cluttering the line graph
-    top_5_ipcs = filtered_df['Primary_IPC'].value_counts().nlargest(5).index
-    ipc_time_df = filtered_df[filtered_df['Primary_IPC'].isin(top_5_ipcs) & (filtered_df['Priority_Year'] > 1999)]
-    ipc_trend = ipc_time_df.groupby(['Priority_Year', 'Primary_IPC']).size().reset_index(name='Count')
-    
-    fig_ipc_time = px.line(ipc_trend, x='Priority_Year', y='Count', color='Primary_IPC', 
-                           markers=True, line_shape='spline',
-                           labels={'Priority_Year': 'Global Priority Year', 'Count': 'Invention Count', 'Primary_IPC': 'Technology'},
-                           title="Top 5 Technologies Over Time (Based on Priority)")
-    st.plotly_chart(fig_ipc_time, use_container_width=True)
-
-    # Comparison 4: Country vs Classifications (Stacked Strength)
     st.subheader("Country Specialization (Top Countries vs IPC)")
-    spec_df = filtered_df[filtered_df['Country Name (Priority)'].isin(top_10_countries) & filtered_df['Primary_IPC'].isin(top_ipcs)]
+    spec_df = filtered_df[filtered_df['Country Name (Priority)'].isin(top_10_countries) & filtered_df['Primary_IPC'].isin(top_ipcs_list)]
     spec_counts = spec_df.groupby(['Country Name (Priority)', 'Primary_IPC']).size().reset_index(name='Total')
-    
     fig_spec = px.bar(spec_counts, x='Country Name (Priority)', y='Total', color='Primary_IPC',
-                      title="Tech Sector Breakdown for Top 10 Countries",
-                      labels={'Total': 'Number of Patents', 'Country Name (Priority)': 'Country', 'Primary_IPC': 'IPC Sector'},
-                      barmode='stack')
+                      labels={'Total': 'Patents', 'Primary_IPC': 'IPC Sector'}, barmode='stack')
     st.plotly_chart(fig_spec, use_container_width=True)
 
 elif menu == "Expert Search":
     st.header("🔍 Identify Experts and Patent Details")
-    search = st.text_input("Enter IPC (e.g., G06F), Title keyword, or Applicant Name")
+    search = st.text_input("Enter IPC, Keyword, or Applicant Name")
     if search:
         mask = filtered_df.astype(str).apply(lambda x: x.str.contains(search, case=False, na=False)).any(axis=1)
         results = filtered_df[mask]
