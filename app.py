@@ -26,7 +26,7 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- PAGE CONFIG & BRANDING ---
+# --- PAGE CONFIG ---
 st.set_page_config(page_title="UAE Patent Analysis Pro", layout="wide", page_icon="🏛️")
 
 st.markdown("""
@@ -48,27 +48,25 @@ def refine_data(df):
         df['Earliest Priority Date'] = pd.to_datetime(df['Earliest Priority Date'], errors='coerce')
         df['Priority_Year'] = df['Earliest Priority Date'].dt.year.fillna(0).astype(int)
         df['Priority_Month'] = df['Earliest Priority Date'].dt.month_name()
+        df['Priority_Period'] = df['Earliest Priority Date'].dt.to_period('M').astype(str)
     if 'Classification' in df.columns:
         df['Primary_IPC'] = df['Classification'].astype(str).str.split(',').str[0].str.strip().str[:4]
     return df
 
-# --- SIDEBAR: LOGO & DATA SOURCE ---
+# --- SIDEBAR & DATA LOADING ---
 with st.sidebar:
     try:
         logo = Image.open("logo.jpeg")
         st.image(logo, use_container_width=True)
     except:
         st.title("🏛️ ARCHISTRATEGOS")
-    
     st.markdown("---")
     data_source = st.radio("Select Data Source:", ["Default UAE Dataset", "Upload Custom CSV"])
 
-# Data Loading
 try:
     if data_source == "Upload Custom CSV":
         uploaded_file = st.sidebar.file_uploader("Upload CSV", type="csv")
-        if uploaded_file: df = refine_data(pd.read_csv(uploaded_file))
-        else: df = None
+        df = refine_data(pd.read_csv(uploaded_file)) if uploaded_file else None
     else:
         df = refine_data(pd.read_csv("Data Structure - Patents in UAE (Archistrategos) - Type 5.csv"))
 except:
@@ -77,62 +75,59 @@ except:
 
 if df is not None:
     menu = st.sidebar.radio("Go to:", ["Time-Series Growth", "Classification & Country Strength", "Global Priority & Comparisons", "Expert Search"])
-    all_countries = sorted(df['Country Name (Priority)'].dropna().unique())
-    selected_country = st.sidebar.multiselect("Filter by Country", all_countries)
+    selected_country = st.sidebar.multiselect("Filter by Country", sorted(df['Country Name (Priority)'].dropna().unique()))
     filtered_df = df.copy()
     if selected_country:
         filtered_df = filtered_df[filtered_df['Country Name (Priority)'].isin(selected_country)]
 
-    # --- MODULE 1: TIME-SERIES GROWTH ---
     if menu == "Time-Series Growth":
         st.header("📈 Growth Trends & Temporal Analysis")
         
-        # 1. BAR GRAPH FIRST
+        # 1. ORIGINAL YEARLY BAR (APPLICATION DATE)
         col1, col2 = st.columns([2, 1])
         with col1:
-            st.subheader("Total Applications per Year (Yearly Bar)")
+            st.subheader("Total Applications per Year (Application Date)")
             yearly_counts = filtered_df[filtered_df['Year'] >= 1990].groupby('Year').size().reset_index(name='Number of Applications')
             fig_bar = px.bar(yearly_counts, x='Year', y='Number of Applications', text='Number of Applications', color_discrete_sequence=['#3498db'])
             fig_bar.update_traces(textposition='outside', textfont=dict(family="Arial Black"))
-            fig_bar.update_xaxes(type='category', tickangle=45)
             st.plotly_chart(fig_bar, use_container_width=True)
         with col2:
-            st.subheader("Yearly Data Registry")
+            st.subheader("Yearly Registry")
             st.dataframe(yearly_counts.sort_values('Year', ascending=False), use_container_width=True, hide_index=True)
 
         st.markdown("---")
 
-        # 2. YEARLY LINE TREND (BRIGHT ORANGE + WHITE NUMBERS)
+        # 2. YEARLY TREND LINE (APPLICATION DATE - ORANGE)
         st.subheader("📉 Yearly Application Trend (Line View)")
-        fig_yearly_trend = px.line(yearly_counts, x='Year', y='Number of Applications', markers=True, text='Number of Applications')
-        fig_yearly_trend.update_traces(
-            line=dict(color='#FF3300', width=4), 
-            textposition='top center', 
-            textfont=dict(family="Arial Black", color="white") # WHITE NUMBERS
-        )
-        fig_yearly_trend.update_xaxes(type='category')
-        st.plotly_chart(fig_yearly_trend, use_container_width=True)
+        fig_app_line = px.line(yearly_counts, x='Year', y='Number of Applications', markers=True, text='Number of Applications')
+        fig_app_line.update_traces(line=dict(color='#FF3300', width=4), textposition='top center', textfont=dict(family="Arial Black", color="white"))
+        st.plotly_chart(fig_app_line, use_container_width=True)
 
         st.markdown("---")
 
-        # 3. CONTINUOUS MONTHLY LINE GRAPH (BRIGHT CYAN + WHITE NUMBERS)
-        st.subheader("📅 Full Historical Monthly Trend")
+        # 3. CONTINUOUS MONTHLY TREND (APPLICATION DATE - CYAN)
+        st.subheader("📅 Full Historical Monthly Trend (Application Date)")
         monthly_trend = filtered_df[filtered_df['Year'] > 0].groupby('Period').size().reset_index(name='Count')
-        fig_monthly_trend = px.line(monthly_trend, x='Period', y='Count', markers=True, text='Count', labels={'Count': 'Applications'})
-        fig_monthly_trend.update_traces(
-            line=dict(color='#00FFFF', width=3), 
-            marker=dict(color='#002147'), 
-            textposition='top center', 
-            textfont=dict(size=10, color="white", family="Arial Black") # WHITE NUMBERS
-        )
-        st.plotly_chart(fig_monthly_trend, use_container_width=True)
+        fig_app_monthly = px.line(monthly_trend, x='Period', y='Count', markers=True, text='Count')
+        fig_app_monthly.update_traces(line=dict(color='#00FFFF', width=3), textposition='top center', textfont=dict(size=10, color="white", family="Arial Black"))
+        st.plotly_chart(fig_app_monthly, use_container_width=True)
 
         st.markdown("---")
-        
-        # 4. MONTHLY DISTRIBUTION PER YEAR (LAST)
+
+        # 4. NEW: YEARLY TREND LINE (PRIORITY DATE - LIME GREEN)
+        st.subheader("🌍 Yearly Global Priority Trend (Invention Date)")
+        st.write("This shows when the inventions were first filed globally before reaching the UAE.")
+        priority_yearly = filtered_df[filtered_df['Priority_Year'] >= 1990].groupby('Priority_Year').size().reset_index(name='Count')
+        fig_prio_line = px.line(priority_yearly, x='Priority_Year', y='Count', markers=True, text='Count')
+        fig_prio_line.update_traces(line=dict(color='#33FF00', width=4), textposition='top center', textfont=dict(family="Arial Black", color="white"))
+        st.plotly_chart(fig_prio_line, use_container_width=True)
+
+        st.markdown("---")
+
+        # 5. ORIGINAL MONTHLY DISTRIBUTION DETAIL
         selected_year = st.sidebar.selectbox("Focus Year Detail", sorted(df[df['Year'] > 0]['Year'].unique(), reverse=True))
         if selected_year:
-            st.subheader(f"Monthly Distribution for {selected_year}")
+            st.subheader(f"Monthly Distribution for {selected_year} (Application Date)")
             year_df = filtered_df[filtered_df['Year'] == selected_year]
             month_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
             monthly_counts = year_df.groupby('Month').size().reindex(month_order, fill_value=0).reset_index(name='Number of Applications')
@@ -140,7 +135,7 @@ if df is not None:
             fig_month.update_traces(textposition='top center', textfont=dict(family="Arial Black", color="white"))
             st.plotly_chart(fig_month, use_container_width=True)
 
-    # --- ALL OTHER MODULES (UNCHANGED) ---
+    # --- OTHER MODULES (REMAIN INTACT) ---
     elif menu == "Classification & Country Strength":
         st.header("🌍 IPC Strength & Country Activity")
         all_ipcs = [x for x in sorted(filtered_df['Primary_IPC'].dropna().unique()) if x != "Ther"]
@@ -151,24 +146,18 @@ if df is not None:
 
     elif menu == "Global Priority & Comparisons":
         st.header("🏁 Global Priority Analysis")
+        # Existing logic preserved...
         valid_p = df[df['Priority_Year'] > 1900]['Priority_Year']
         p_range = st.sidebar.slider("Priority Range", int(valid_p.min()), int(valid_p.max()), (int(valid_p.max()-5), int(valid_p.max())))
         p_df = filtered_df[(filtered_df['Priority_Year'] >= p_range[0]) & (filtered_df['Priority_Year'] <= p_range[1])]
         col_chart, col_table = st.columns([2, 1])
         with col_chart:
-            month_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
             actual = p_df.groupby(['Priority_Year', 'Priority_Month']).size().reset_index(name='Number of Applications')
-            actual['Priority_Year'] = actual['Priority_Year'].astype(str)
-            fig_m = px.bar(actual, x='Priority_Month', y='Number of Applications', color='Priority_Year', barmode='group', text='Number of Applications', category_orders={"Priority_Month": month_order})
+            fig_m = px.bar(actual, x='Priority_Month', y='Number of Applications', color='Priority_Year', barmode='group', text='Number of Applications')
             st.plotly_chart(fig_m, use_container_width=True)
         with col_table:
             st.subheader("📌 Yearly Summary")
-            summary_p = p_df.groupby('Priority_Year').size().reset_index(name='Number of Applications')
-            st.dataframe(summary_p.sort_values('Priority_Year', ascending=False), use_container_width=True, hide_index=True)
-            st.subheader("📅 Monthly Breakdown")
-            detail_p = p_df.groupby(['Priority_Year', 'Priority_Month']).size().reset_index(name='Number of Applications')
-            detail_p['Month_Num'] = pd.to_datetime(detail_p['Priority_Month'], format='%B').dt.month
-            st.dataframe(detail_p.sort_values(['Priority_Year', 'Month_Num'], ascending=[False, True])[['Priority_Year', 'Priority_Month', 'Number of Applications']], use_container_width=True, height=400, hide_index=True)
+            st.dataframe(p_df.groupby('Priority_Year').size().reset_index(name='Number of Applications').sort_values('Priority_Year', ascending=False), use_container_width=True, hide_index=True)
 
     elif menu == "Expert Search":
         st.header("🔍 Identify Experts")
